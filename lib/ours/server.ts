@@ -574,7 +574,7 @@ export async function handle(req: Request) {
         return json({ ok: true });
       }
       if (req.method === 'DELETE') {
-        if (row.creator_id !== user)
+        if (!mayEdit(k, row, user))
           return json({ error: 'Only the author can delete this' }, 403);
         await db(`${k}?id=eq.${itemId}&couple_id=eq.${cid}`, 'DELETE');
         return json({ ok: true });
