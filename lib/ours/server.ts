@@ -235,10 +235,15 @@ function feedText(value: string) {
     .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
 }
-async function fetchNews() {
-  const response = await fetch('https://news.google.com/rss?hl=ru&gl=RU&ceid=RU:ru', {
+let newsCache: { expires: number; items: NewsItem[] } | null = null;
+type NewsItem = { title: string; link: string; source: string; published_at: string };
+const newsFallback: NewsItem[] = [
+  { title: 'Последние новости Санкт-Петербурга', link: 'https://news.google.com/search?q=Санкт-Петербург&hl=ru&gl=RU&ceid=RU:ru', source: 'Google Новости', published_at: '' },
+];
+async function fetchNewsFeed(feed: string) {
+  const response = await fetch(feed, {
     headers: { Accept: 'application/rss+xml, application/xml', 'User-Agent': 'OURS news/1.0' },
-    signal: AbortSignal.timeout(6000),
+    signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) throw new Error('Новости временно недоступны');
   const xml = await response.text();
@@ -246,7 +251,24 @@ async function fetchNews() {
     const item = match[1];
     const value = (tag: string) => feedText(item.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))?.[1] ?? '');
     return { title: value('title'), link: value('link'), source: value('source') || 'Google Новости', published_at: value('pubDate') };
-  }).filter((item) => item.title && item.link);
+  }).filter((item) => item.title && item.link) as NewsItem[];
+}
+async function fetchNews() {
+  if (newsCache && newsCache.expires > Date.now()) return newsCache.items;
+  const feeds = [
+    'https://news.google.com/rss?hl=ru&gl=RU&ceid=RU:ru',
+    'https://ria.ru/export/rss2/archive/index.xml',
+  ];
+  for (const feed of feeds) {
+    try {
+      const items = await fetchNewsFeed(feed);
+      if (items.length) {
+        newsCache = { items, expires: Date.now() + 5 * 60_000 };
+        return items;
+      }
+    } catch { /* try the next feed */ }
+  }
+  return newsCache?.items ?? newsFallback;
 }
 function id(value: string) {
   if (!/^[0-9a-f-]{36}$/.test(value)) throw new Error('Invalid item');
