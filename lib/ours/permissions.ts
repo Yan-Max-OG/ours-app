@@ -61,14 +61,9 @@ export function visibleEntry(
   return row;
 }
 export function mayEdit(kind: Kind, row: Entry, user: string) {
-  return (
-    row.creator_id === user ||
-    (['tasks', 'places', 'events', 'bucket_items', 'goals', 'rituals'].includes(
-      kind,
-    ) &&
-      !row.private &&
-      !(row.unlock_at && new Date(row.unlock_at).getTime() > Date.now()))
-  );
+  void kind;
+  void user;
+  return !row.private && !(row.unlock_at && new Date(row.unlock_at).getTime() > Date.now());
 }
 export function validateEntry(input: unknown) {
   if (!input || typeof input !== 'object' || Array.isArray(input))
@@ -92,7 +87,12 @@ export function validateEntry(input: unknown) {
     body: typeof v.body === 'string' ? v.body : '',
     category:
       typeof v.category === 'string' ? v.category.slice(0, 60) : 'for us',
-    status: v.status === 'completed' ? 'completed' : 'open',
+    status:
+      v.status === 'completed'
+        ? 'completed'
+        : v.status === 'in_cart'
+          ? 'in_cart'
+          : 'open',
     assigned_to: typeof v.assigned_to === 'string' ? v.assigned_to : null,
     date: v.date || null,
     unlock_at: v.unlock_at || null,
