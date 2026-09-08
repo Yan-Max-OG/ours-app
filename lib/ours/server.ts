@@ -293,7 +293,7 @@ export async function handle(req: Request) {
       if (!users[0]) throw new Error('Профиль не найден.');
       const token = await makeSession(users[0].id, e.secret);
       return json(await snapshot(users[0].id), 200, {
-        'Set-Cookie': `ours_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=43200`,
+        'Set-Cookie': `ours_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
       });
     }
     if (action === 'logout' && req.method === 'POST') {
