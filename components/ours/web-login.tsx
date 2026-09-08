@@ -23,11 +23,20 @@ export function WebLogin({ onSignedIn }: { onSignedIn: (space: Space) => void })
         method: 'POST', headers: { apikey: publishableKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      const data = await response.json() as { access_token?: string; error_code?: string };
+      const data = await response.json() as {
+        access_token?: string;
+        error_code?: string;
+        error?: string;
+        msg?: string;
+        error_description?: string;
+      };
       if (!response.ok) {
         if (data.error_code === 'email_not_confirmed') throw new Error('Подтвердите почту по ссылке в письме, затем войдите.');
         if (response.status === 429) throw new Error('Слишком много попыток. Подождите немного.');
-        throw new Error(signup ? 'Не удалось зарегистрироваться. Проверьте почту и пароль.' : 'Не удалось войти. Проверьте почту и пароль.');
+        throw new Error(
+          data.error_description ?? data.msg ?? data.error ??
+            (signup ? 'Не удалось зарегистрироваться.' : 'Не удалось войти.'),
+        );
       }
       if (!data.access_token) {
         setMessage('Подтвердите почту по ссылке в письме, затем вернитесь сюда и войдите.');
