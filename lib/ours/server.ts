@@ -16,14 +16,19 @@ import {
   validateTelegram,
 } from './security';
 import { mayEdit, validateEntry, visibleEntry } from './permissions';
+import { env as workerEnv } from 'cloudflare:workers';
+
+function runtimeValue(name: string) {
+  return process.env[name] ?? (workerEnv as Record<string, string | undefined>)[name];
+}
 function env() {
   const e = {
-    url: process.env.SUPABASE_URL,
-    key: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    bot: process.env.TELEGRAM_BOT_TOKEN,
-    secret: process.env.SESSION_SECRET,
-    username: process.env.TELEGRAM_BOT_USERNAME,
-    origin: process.env.APP_ORIGIN,
+    url: runtimeValue('SUPABASE_URL'),
+    key: runtimeValue('SUPABASE_SERVICE_ROLE_KEY'),
+    bot: runtimeValue('TELEGRAM_BOT_TOKEN'),
+    secret: runtimeValue('SESSION_SECRET'),
+    username: runtimeValue('TELEGRAM_BOT_USERNAME'),
+    origin: runtimeValue('APP_ORIGIN'),
   };
   if (!e.url || !e.key || !e.secret || !e.origin)
     throw new Error('SETUP_REQUIRED');
@@ -256,10 +261,10 @@ export async function handle(req: Request) {
     if (action === 'config')
       return json({
         configured: Boolean(
-          process.env.SUPABASE_URL &&
-          process.env.SESSION_SECRET &&
-          process.env.SUPABASE_SERVICE_ROLE_KEY &&
-          process.env.APP_ORIGIN,
+          runtimeValue('SUPABASE_URL') &&
+          runtimeValue('SESSION_SECRET') &&
+          runtimeValue('SUPABASE_SERVICE_ROLE_KEY') &&
+          runtimeValue('APP_ORIGIN'),
         ),
       });
     const e = env();
