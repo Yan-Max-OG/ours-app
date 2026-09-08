@@ -1,12 +1,12 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { CarFront, CloudSun, Dice5, ExternalLink, MapPin, Newspaper } from 'lucide-react';
+import { CarFront, CloudSun, Dice5, ExternalLink, MapPin, Newspaper, RefreshCw } from 'lucide-react';
 import { api, useSpace } from '@/lib/ours/store';
 import { photos, type Entry, type Kind } from '@/lib/ours/types';
 import { PageHeading } from './primitives';
 
 export interface Openers { detail: (kind: Kind, row: Entry) => void; create: (kind: Kind) => void; go: (page: string) => void; }
-type NewsItem = { title: string; link: string; source: string; published_at: string };
+type NewsItem = { title: string; link: string; source: string; published_at: string; image?: string };
 type Venue = { id: string; name: string; kind: string; address: string; website?: string; image: string };
 type Weather = { temperature: number; feels: number; wind: number; code: number };
 const fallbackVenues: Venue[] = [
@@ -22,6 +22,8 @@ export function Today(_props: Openers) {
   const { demo } = useSpace();
   const [news, setNews] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
+  const [newsRefreshing, setNewsRefreshing] = useState(false);
+  const [autoNews, setAutoNews] = useState(false);
   const [weather, setWeather] = useState<Weather | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [venues, setVenues] = useState<Venue[]>(fallbackVenues);
@@ -35,13 +37,26 @@ export function Today(_props: Openers) {
     fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent('[out:json][timeout:12];nwr["amenity"~"restaurant|cafe|bar|cinema|theatre"](59.83,30.15,60.08,30.55);out center tags 80;')).then((r) => r.json() as Promise<{ elements: { id: number; tags?: Record<string, string>; center?: { lat: number; lon: number } }[] }>).then((d) => { if (!alive) return; const raw = d.elements.map((item, index) => ({ id: String(item.id), name: item.tags?.name ?? '', kind: item.tags?.amenity ?? 'место', address: [item.tags?.['addr:street'], item.tags?.['addr:housenumber']].filter(Boolean).join(', '), website: item.tags?.website, image: item.tags?.image ?? [photos.cafe, photos.coast, photos.paris][index % 3] })).filter((item) => item.name); const list = [...new Map(raw.map((item) => [item.name.toLocaleLowerCase(), item])).values()]; if (list.length >= 2) { setVenues(list); venueIndex.current = 0; setVenue(list[0]); } }).catch(() => undefined).finally(() => { if (alive) setVenueLoading(false); });
     return () => { alive = false; };
   }, []);
+  useEffect(() => {
+    if (!autoNews) return;
+    const timer = window.setInterval(() => void refreshNews(), 5 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [autoNews]);
+  async function refreshNews() {
+    setNewsRefreshing(true);
+    try {
+      const data = await api<{ items: NewsItem[] }>(`news?refresh=${Date.now()}`);
+      setNews(data.items);
+    } catch { /* keep the last successful feed */ }
+    finally { setNewsRefreshing(false); }
+  }
   function pickVenue() {
     if (venues.length < 2) return;
     venueIndex.current = (venueIndex.current + 1) % venues.length;
     setVenue(venues[venueIndex.current]);
   }
   return <><PageHeading label="СЕГОДНЯ" title={<>Что происходит <em>вокруг.</em></>} subtitle="Новости, погода и идеи для сегодняшнего дня." /><div className="today-dashboard">
-    <section className="news-card today-news-card"><div className="section-heading"><h3><Newspaper size={18} /> Новости сегодня</h3><span className="eyebrow">РУССКАЯ ЛЕНТА</span></div>{newsLoading ? <p className="news-empty">Загружаем свежие новости…</p> : news.length ? <div className="news-list">{news.map((item) => <a key={item.link} href={item.link} target="_blank" rel="noreferrer"><span><b>{item.title}</b><small>{item.source}{item.published_at ? ` · ${new Date(item.published_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ''}</small></span><ExternalLink size={16} /></a>)}</div> : <p className="news-empty">{demo ? 'Новости появятся после подключения приложения к Telegram.' : 'Новости временно недоступны.'}</p>}</section>
+    <section className="news-card today-news-card"><div className="section-heading"><h3><Newspaper size={18} /> Новости сегодня</h3><div className="news-heading-actions"><span className="eyebrow">РУССКАЯ ЛЕНТА</span><label className="news-auto"><input type="checkbox" checked={autoNews} onChange={(event) => setAutoNews(event.target.checked)} /> авто</label><button className="news-refresh" onClick={() => void refreshNews()} disabled={newsLoading || newsRefreshing} aria-label="Обновить новости"><RefreshCw size={15} className={newsRefreshing ? 'spin' : ''} />{newsRefreshing ? 'Обновляем…' : 'Обновить'}</button></div></div>{newsLoading ? <p className="news-empty">Загружаем свежие новости…</p> : news.length ? <div className="news-list">{news.map((item) => <a className="news-item" key={item.link} href={item.link} target="_blank" rel="noreferrer">{item.image ? <img className="news-media" src={item.image} alt="" loading="lazy" /> : <span className="news-media news-media-fallback"><Newspaper size={18} /></span>}<span className="news-copy"><b>{item.title}</b><small>{item.source}{item.published_at ? ` · ${new Date(item.published_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ''}</small></span><ExternalLink size={16} /></a>)}</div> : <p className="news-empty">{demo ? 'Новости появятся после подключения приложения к Telegram.' : 'Новости временно недоступны.'}</p>}</section>
     <div className="today-mini-grid"><section className="today-widget weather-widget"><div className="widget-top"><span className="eyebrow">САНКТ‑ПЕТЕРБУРГ</span><CloudSun size={22} /></div>{weatherLoading ? <strong>Загружаем…</strong> : weather ? <><strong>{weather.temperature}°</strong><span>{weatherLabel(weather.code)} · ощущается как {weather.feels}°</span><small>Ветер {weather.wind} км/ч</small></> : <span>Погода временно недоступна</span>}</section><a className="today-widget traffic-widget" href="https://yandex.ru/maps/2/saint-petersburg/probki/" target="_blank" rel="noreferrer"><div className="widget-top"><span className="eyebrow">ДОРОГИ</span><CarFront size={22} /></div><strong>Ситуация на дорогах</strong><span>Открыть пробки Санкт‑Петербурга <ExternalLink size={14} /></span></a></div>
     <section className="today-widget place-generator"><div className="widget-top"><span className="eyebrow">НОВЫЕ ЗАВЕДЕНИЯ</span><Dice5 size={22} /></div>{venueLoading ? <p>Ищем интересные места в Санкт‑Петербурге…</p> : venue && <div className="generated-venue"><img src={venue.image} alt={venue.name} /><div className="venue-mark"><MapPin size={24} /></div><span><b>{venue.name}</b><small>{venue.kind}{venue.address ? ` · ${venue.address}` : ''}</small></span></div>}<button className="primary" onClick={() => pickVenue()}><Dice5 size={16} /> Другое место</button><p className="venue-source">Подборка по Санкт‑Петербургу · OpenStreetMap</p></section>
   </div></>;
