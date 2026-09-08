@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { seed } from './demo';
+import { WebLogin } from '@/components/ours/web-login';
 import {
   kinds,
   type Couple,
@@ -84,6 +85,7 @@ export function SpaceProvider({ children }: { children: ReactNode }) {
   const state = useRef(space);
   state.current = space;
   const [demo, setDemo] = useState(true);
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -122,19 +124,13 @@ export function SpaceProvider({ children }: { children: ReactNode }) {
           if (alive) setError(String((e as Error).message));
         }
       } else {
+        setDemo(false);
         try {
-          const saved = localStorage.getItem('ours-demo-v1');
-          if (saved) {
-            const s = JSON.parse(saved) as Space;
-            if (
-              s.couple &&
-              s.entries &&
-              kinds.every((k) => Array.isArray(s.entries[k]))
-            )
-              setSpace(s);
-          }
+          const saved = await api<Space>('state');
+          saved.invite_start = new URLSearchParams(location.search).get('invite') ?? undefined;
+          if (alive) setSpace(saved);
         } catch {
-          notify('Your demo could not be restored. A fresh space is ready.');
+          if (alive) setNeedsLogin(true);
         }
       }
       if (alive) {
@@ -398,6 +394,10 @@ export function SpaceProvider({ children }: { children: ReactNode }) {
         ) as Space['entries'],
       }
     : space;
+  if (needsLogin) return <WebLogin onSignedIn={(next) => {
+    next.invite_start = new URLSearchParams(location.search).get('invite') ?? undefined;
+    setSpace(next); setDemo(false); setError(''); setNeedsLogin(false);
+  }} />;
   return (
     <Context.Provider
       value={{

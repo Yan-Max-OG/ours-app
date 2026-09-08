@@ -25,7 +25,7 @@ function env() {
     username: process.env.TELEGRAM_BOT_USERNAME,
     origin: process.env.APP_ORIGIN,
   };
-  if (!e.url || !e.key || !e.bot || !e.secret || !e.origin)
+  if (!e.url || !e.key || !e.secret || !e.origin)
     throw new Error('SETUP_REQUIRED');
   return e as {
     url: string;
@@ -132,7 +132,7 @@ async function requireUser(req: Request) {
       .map((v) => v.trim())
       .find((v) => v.startsWith('ours_session='))
       ?.slice(13);
-  if (!token) throw new Error('Please reopen OURS from Telegram');
+  if (!token) throw new Error('Session expired. Please sign in again.');
   return readSession(token, env().secret);
 }
 function decodeHtml(value: string) {
@@ -257,7 +257,6 @@ export async function handle(req: Request) {
       return json({
         configured: Boolean(
           process.env.SUPABASE_URL &&
-          process.env.TELEGRAM_BOT_TOKEN &&
           process.env.SESSION_SECRET &&
           process.env.SUPABASE_SERVICE_ROLE_KEY &&
           process.env.APP_ORIGIN,
@@ -266,7 +265,37 @@ export async function handle(req: Request) {
     const e = env();
     if (req.method !== 'GET' && req.headers.get('origin') !== e.origin)
       return json({ error: 'Request origin is not allowed' }, 403);
+    if (action === 'web-auth' && req.method === 'POST') {
+      await rate('web-auth:' + await digest(req.headers.get('cf-connecting-ip') ?? 'unknown'), 30);
+      const body = await req.json() as { access_token?: string };
+      if (typeof body.access_token !== 'string' || body.access_token.length > 16000)
+        return json({ error: 'Войдите заново.' }, 401);
+      const verified = await fetch(`${e.url}/auth/v1/user`, {
+        headers: { apikey: e.key, Authorization: `Bearer ${body.access_token}` },
+      });
+      if (!verified.ok) return json({ error: 'Войдите заново.' }, 401);
+      const identity = await verified.json() as { id?: string; email?: string };
+      if (!identity.id || !identity.email) return json({ error: 'Не удалось проверить аккаунт.' }, 401);
+      const externalId = 'web:' + id(identity.id);
+      // The identity comes only from Supabase's verified /user response.
+      const created = await fetch(`${e.url}/rest/v1/users?on_conflict=telegram_id`, {
+        method: 'POST',
+        headers: { apikey: e.key, Authorization: `Bearer ${e.key}`, 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=representation' },
+        body: JSON.stringify({ telegram_id: externalId, first_name: identity.email.split('@')[0].slice(0, 80) }),
+      });
+      if (!created.ok) throw new Error('Не удалось создать профиль.');
+      const users = await db<Space['members']>(`users?telegram_id=eq.${encodeURIComponent(externalId)}&select=*`);
+      if (!users[0]) throw new Error('Профиль не найден.');
+      const token = await makeSession(users[0].id, e.secret);
+      return json(await snapshot(users[0].id), 200, {
+        'Set-Cookie': `ours_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=43200`,
+      });
+    }
+    if (action === 'logout' && req.method === 'POST') {
+      return json({ ok: true }, 200, { 'Set-Cookie': 'ours_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0' });
+    }
     if (action === 'auth' && req.method === 'POST') {
+      if (!e.bot) throw new Error('Войдите на сайте по почте.');
       await rate(
         'auth:' +
           (await digest(req.headers.get('cf-connecting-ip') ?? 'unknown')),
@@ -315,7 +344,7 @@ export async function handle(req: Request) {
       });
       return json({
         token,
-        link: `https://t.me/${e.username}?startapp=invite_${token}`,
+        link: `${e.origin}/?invite=${token}`,
         expires_in: '48 hours',
       });
     }
@@ -555,7 +584,7 @@ export async function handle(req: Request) {
     return json(
       {
         error: setup
-          ? 'Connect Telegram and Supabase to use your real shared space. The browser demo remains available.'
+          ? 'Общая база ещё не подключена. Завершите настройку Cloudflare.'
           : message,
       },
       setup ? 503 : auth ? 401 : /Too many/.test(message) ? 429 : 400,

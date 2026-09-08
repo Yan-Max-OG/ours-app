@@ -352,7 +352,7 @@ export function Onboarding() {
               <input
                 value={token}
                 onChange={(e) => {
-                  setToken(e.target.value.replace(/^.*invite_/, ''));
+                  setToken(e.target.value.replace(/^.*[?&]invite=/, '').replace(/^.*invite_/, '').split('&')[0]);
                   setPreview(false);
                 }}
                 placeholder="Paste an invitation or code"
