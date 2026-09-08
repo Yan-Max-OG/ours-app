@@ -236,7 +236,7 @@ function feedText(value: string) {
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
 }
 let newsCache: { expires: number; items: NewsItem[] } | null = null;
-type NewsItem = { title: string; link: string; source: string; published_at: string };
+type NewsItem = { title: string; link: string; source: string; published_at: string; image?: string };
 const newsFallback: NewsItem[] = [
   { title: 'Последние новости Санкт-Петербурга', link: 'https://news.google.com/search?q=Санкт-Петербург&hl=ru&gl=RU&ceid=RU:ru', source: 'Google Новости', published_at: '' },
 ];
@@ -250,18 +250,20 @@ async function fetchNewsFeed(feed: string) {
   return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)].slice(0, 6).map((match) => {
     const item = match[1];
     const value = (tag: string) => feedText(item.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))?.[1] ?? '');
-    return { title: value('title'), link: value('link'), source: value('source') || 'Google Новости', published_at: value('pubDate') };
+    const image = item.match(/<(?:media:content|media:thumbnail|enclosure)[^>]+url=["']([^"']+)["']/i)?.[1];
+    return { title: value('title'), link: value('link'), source: value('source') || 'Google Новости', published_at: value('pubDate'), image: image && /^https?:\/\//i.test(image) ? image : undefined };
   }).filter((item) => item.title && item.link) as NewsItem[];
 }
-async function fetchNews() {
-  if (newsCache && newsCache.expires > Date.now()) return newsCache.items;
+async function fetchNews(force = false) {
+  if (!force && newsCache && newsCache.expires > Date.now()) return newsCache.items;
   const feeds = [
     'https://news.google.com/rss?hl=ru&gl=RU&ceid=RU:ru',
     'https://ria.ru/export/rss2/archive/index.xml',
   ];
   for (const feed of feeds) {
     try {
-      const items = await fetchNewsFeed(feed);
+      const freshFeed = force ? `${feed}${feed.includes('?') ? '&' : '?'}_ours=${Date.now()}` : feed;
+      const items = await fetchNewsFeed(freshFeed);
       if (items.length) {
         newsCache = { items, expires: Date.now() + 5 * 60_000 };
         return items;
@@ -454,7 +456,8 @@ export async function handle(req: Request) {
     }
     if (action === 'news' && req.method === 'GET') {
       await rate(`news:${user}`, 20);
-      return json({ items: await fetchNews() }, 200, { 'Cache-Control': 'public, max-age=300' });
+      const force = url.searchParams.has('refresh');
+      return json({ items: await fetchNews(force) }, 200, { 'Cache-Control': force ? 'no-store' : 'public, max-age=300' });
     }
     if (action === 'place-preview' && req.method === 'POST') {
       await rate(`place-preview:${user}`, 20);
